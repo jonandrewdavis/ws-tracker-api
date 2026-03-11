@@ -18,7 +18,7 @@ export class TurnHelper {
 	 * @param TURN_SECRET_KEY
 	 */
 	public static async generate(TURN_API_ID: String, TURN_SECRET_KEY: String): Promise<TurnResponse | null> {
-		const url = `https://rtc.live.cloudflare.com/v1/turn/keys/${TURN_API_ID}/credentials/generate-ice-servers`;
+		const url = `https://rtc.live.cloudflare.com/v1/turn/keys/2d8a9cc09c39632c69e545549da58793/credentials/generate-ice-servers`;
 
 		// TODO: Avoid casting "data as TurnResponse"
 		const fetchTurnCredentials = await fetch(url, {
