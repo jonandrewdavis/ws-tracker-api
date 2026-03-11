@@ -2,6 +2,7 @@ import { TurnHelper } from './turn';
 
 export interface Env {
 	ASSETS: Fetcher;
+	TURN_API_ID: string;
 	TURN_SECRET_KEY: string;
 }
 
@@ -15,23 +16,12 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		// TODO: Any other path names we need here?
+		// TODO: Any other path names we need here? I'm not confident this is the best way to route these worker requests.
 		if (url.pathname.endsWith('turn') || url.pathname.endsWith('turn/')) {
 			const options = { headers: { 'content-type': 'application/json' } };
-			// const url = 'https://jsonplaceholder.typicode.com/todos/1';
-
-			// // gatherResponse returns both content-type & response body as a string
-			// async function gatherResponse(response: any) {
-			// 	const { headers } = response;
-			// 	const contentType = headers.get('content-type') || '';
-			// 	if (contentType.includes('application/json')) {
-			// 		return { contentType, result: JSON.stringify(await response.json()) };
-			// 	}
-			// 	return { contentType, result: response.text() };
-			// }
 
 			try {
-				const response = await TurnHelper.generate(env.TURN_SECRET_KEY);
+				const response = await TurnHelper.generate(env.TURN_SECRET_KEY, env.TURN_SECRET_KEY);
 				if (response != null) {
 					return new Response(JSON.stringify(response), options);
 				} else {
