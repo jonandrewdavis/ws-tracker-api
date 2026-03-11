@@ -1,5 +1,8 @@
+import { TurnHelper } from './turn';
+
 export interface Env {
-	TURN_KEY: string;
+	ASSETS: Fetcher;
+	TURN_SECRET_KEY: string;
 }
 
 export default {
@@ -12,20 +15,34 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		// gatherResponse returns both content-type & response body as a string
-		async function gatherResponse(response) {
-			const { headers } = response;
-			const contentType = headers.get('content-type') || '';
-			if (contentType.includes('application/json')) {
-				return { contentType, result: JSON.stringify(await response.json()) };
-			}
-			return { contentType, result: response.text() };
+		// TODO: Any other path names we need here?
+		if (url.pathname.endsWith('turn') || url.pathname.endsWith('turn/')) {
+			const options = { headers: { 'content-type': 'application/json' } };
+			// const url = 'https://jsonplaceholder.typicode.com/todos/1';
+
+			// // gatherResponse returns both content-type & response body as a string
+			// async function gatherResponse(response: any) {
+			// 	const { headers } = response;
+			// 	const contentType = headers.get('content-type') || '';
+			// 	if (contentType.includes('application/json')) {
+			// 		return { contentType, result: JSON.stringify(await response.json()) };
+			// 	}
+			// 	return { contentType, result: response.text() };
+			// }
+
+			try {
+				const response = await TurnHelper.generate(env.TURN_SECRET_KEY);
+				if (response != null) {
+					return new Response(JSON.stringify(response), options);
+				} else {
+					const nothing = { response: 'not found' };
+					return new Response(JSON.stringify(nothing), options);
+				}
+			} catch {}
 		}
 
-		const response = await fetch(url);
-		const { contentType, result } = await gatherResponse(response);
-
-		const options = { headers: { 'content-type': contentType } };
-		return new Response(result, options);
+		const options = { headers: { 'content-type': 'application/json' } };
+		const nothing = { response: 'not found' };
+		return new Response(JSON.stringify(nothing), options);
 	},
 } satisfies ExportedHandler<Env>;

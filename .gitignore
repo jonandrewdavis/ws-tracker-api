@@ -142,7 +142,7 @@ dist
 
 .dynamodb/
 
-# TernJS port file
+# TernJS port fileb
 
 .tern-port
 
