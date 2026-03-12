@@ -137,13 +137,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@cloudflare/workers-types@npm:^4.20250403.0":
-  version: 4.20260310.1
-  resolution: "@cloudflare/workers-types@npm:4.20260310.1"
-  checksum: 10c0/887f79b2db34a9a21e95176d91bbdd73bedbc3bea9dedf815997e0b2a306cb1761bfc498fca2aa5cc104309a86ef03a3ffa398c5a6da6a92290eb18da7cb1436
-  languageName: node
-  linkType: hard
-
 "@cspotcode/source-map-support@npm:0.8.1":
   version: 0.8.1
   resolution: "@cspotcode/source-map-support@npm:0.8.1"
@@ -3341,7 +3334,6 @@ __metadata:
   resolution: "ws-tracker-api@workspace:."
   dependencies:
     "@cloudflare/vitest-pool-workers": "npm:^0.7.5"
-    "@cloudflare/workers-types": "npm:^4.20250403.0"
     typescript: "npm:^5.5.2"
     vitest: "npm:~3.0.7"
     wrangler: "npm:^4.7.0"
