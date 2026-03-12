@@ -9,6 +9,29 @@ export interface Env {
 	readonly MY_FIRST_QUEUE: Queue;
 }
 
+enum Actions {
+	CONNECT = 'connect',
+	WAIT = 'wait',
+	LOBBY = 'lobby',
+	ERROR = 'error',
+}
+
+interface Message {
+	action: Actions;
+	payload?: LobbyPayload | ErrorPayload;
+}
+
+interface LobbyPayload {
+	sessionIds: string[];
+	host: string;
+	room_id: string;
+}
+
+interface ErrorPayload {
+	message: string;
+}
+
+
 const ALLOWED_ORIGINS = ['https://html-classic.itch.zone', 'https://androodev.com', 'https://www.androodev.com', 'https://bewe.me'];
 
 function handleCors(request: Request<unknown>, response: Response) {
@@ -55,19 +78,10 @@ export default {
 					var nothingResponse = new Response(JSON.stringify(nothing), options);
 					return handleCors(request, nothingResponse);
 				}
-			} catch {}
-		}
-
-		if (url.pathname.endsWith('matchmaking') || url.pathname.endsWith('matchmaking/')) {
-			const message = {
-				url: request.url,
-				method: request.method,
-				headers: Object.fromEntries(request.headers),
-			};
-
-			await env.MY_FIRST_QUEUE.send(message); // This will throw an exception if the send fails for any reason
-			const response = new Response('Sent!');
-			return handleCors(request, response);
+			} catch {
+				// TODO: Error for turn
+				console.log('Error for turn')
+			}
 		}
 
 		if (request.url.endsWith('/websocket')) {
@@ -100,15 +114,40 @@ export default {
 		return handleCors(request, response);
 	},
 
-	async queue(batch, env, ctx): Promise<void> {
-		console.log('DEBUG: New batch');
-		// Do something with messages in the batch
-		// i.e. write to R2 storage, D1 database, or POST to an external API
-		for (const msg of batch.messages) {
-			// Process each message
-			console.log(msg.body);
-			let id = env.WEBSOCKET_SERVER.idFromName('foo');
-			env.WEBSOCKET_SERVER.get(id);
+	// Queue processes every 2 items
+	// Queue always acks the message regardless of success or failure
+	// It's up to the websocket to handle the message and requeue if necessary
+	async queue(batch, env, _ctx): Promise<void> {
+		let id = env.WEBSOCKET_SERVER.idFromName('foo');
+		let stub = env.WEBSOCKET_SERVER.get(id);
+
+		try {
+			const sessionIds: string[] = [];
+
+			for (const msg of batch.messages) {
+				sessionIds.push(msg.body as string);
+			}
+
+			const message: Message = {
+				action: Actions.LOBBY,
+				payload: {
+					sessionIds,
+					host: sessionIds[0],
+					room_id: crypto.randomUUID(),
+				}
+			}
+
+			await stub.fetch(new Request('http://internal/broadcast', {
+				method: 'POST',
+				body: JSON.stringify(message)
+			}));
+		} catch (err) {
+			console.error("Failed to proces message queue :", err);
+		} finally {
+			for (const msg of batch.messages) {
+				// console.log('DEBUG: Ack - ', batch.messages.length, msg)
+				msg.ack();
+			}
 		}
 	},
 } satisfies ExportedHandler<Env>;
@@ -116,13 +155,23 @@ export default {
 export class WebSocketServer extends DurableObject {
 	// Keeps track of all WebSocket connections
 	sessions: Map<WebSocket, { [key: string]: string }>;
+	sessionLookup: Map<string, WebSocket>;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.sessions = new Map();
+		this.sessionLookup = new Map();
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		const upgradeHeader = request.headers.get('Upgrade');
+		if (!upgradeHeader || upgradeHeader !== 'websocket') {
+			if (request.method === 'POST') {
+				return this.handleQueue(request)
+			}
+			return new Response('Durable Object expected Upgrade: websocket', { status: 426 });
+		}
+
 		// Creates two ends of a WebSocket connection.
 		const webSocketPair = new WebSocketPair();
 		const [client, server] = Object.values(webSocketPair);
@@ -136,8 +185,6 @@ export class WebSocketServer extends DurableObject {
 		const id = crypto.randomUUID();
 		// Add the WebSocket connection to the map of active sessions.
 		this.sessions.set(server, { id });
-
-		this.env.MY_FIRST_QUEUE.send(id);
 
 		server.addEventListener('message', (event) => {
 			this.handleWebSocketMessage(server, event.data);
@@ -154,35 +201,60 @@ export class WebSocketServer extends DurableObject {
 		});
 	}
 
+	// Incoming from Godot client
+	// Can queue or request a retry
 	async handleWebSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
 		const connection = this.sessions.get(ws)!;
 
+		if (message == "connect" && !this.sessionLookup.has(connection.id)) {
+			this.env.MY_FIRST_QUEUE.send(connection.id);
+			this.sessionLookup.set(connection.id, ws);
+			ws.send(JSON.stringify({ action: Actions.WAIT }));
+			return;
+		}
+
+		// TODO: Better retry 
+		if (message == "retry" && this.sessionLookup.has(connection.id)) {
+			this.env.MY_FIRST_QUEUE.send(connection.id);
+			ws.send(JSON.stringify({ action: Actions.WAIT }));
+			return;
+		}
 		// Reply back with the same message to the connection
-		ws.send(
-			`[Durable Object] message: ${message}, from: ${connection.id}, to: the initiating client. Total connections: ${this.sessions.size}`,
-		);
+	}
 
-		// Broadcast the message to all the connections,
-		// except the one that sent the message.
-		this.sessions.forEach((_, session) => {
-			if (session !== ws) {
-				session.send(
-					`[Durable Object] message: ${message}, from: ${connection.id}, to: all clients except the initiating client. Total connections: ${this.sessions.size}`,
-				);
+	async handleQueue(request: Request) {
+		try {
+			const message: Message = await request.json();
+			if (message.action == Actions.LOBBY) {
+				const payload = message.payload as LobbyPayload;
+				// TODO: Assert or something the payload is as expected. Rogue payloads could theoretcially mess this up
+				if (payload.sessionIds.length < 2) {
+					// TODO: retry or kick 'em out to menu? Probably error. Their id has been processed.
+					// Could requeue it if their connection is still good though.
+					throw new Error('Session length is less than 2');
+				}
+
+				payload.sessionIds.forEach((sessionId) => {
+					const session = this.sessionLookup.get(sessionId)
+					if (session) {
+						session.send(JSON.stringify(message));
+						this.sessionLookup.delete(sessionId);
+					} else {
+						throw new Error('Session not found: ' + sessionId);
+					}
+				});
 			}
-		});
-
-		// Broadcast the message to all the connections,
-		// including the one that sent the message.
-		this.sessions.forEach((_, session) => {
-			session.send(
-				`[Durable Object] message: ${message}, from: ${connection.id}, to: all clients. Total connections: ${this.sessions.size}`,
-			);
-		});
+			return new Response('Broadcast successful', { status: 200 });
+		} catch (err) {
+			console.error('Error broadcasting to session:', err);
+			return new Response('Error broadcasting to session', { status: 400 });
+		}
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
+		const connection = this.sessions.get(ws)!;
 		this.sessions.delete(ws);
+		this.sessionLookup.delete(connection.id);
 		ws.close(1000, 'Durable Object is closing WebSocket');
 	}
 }
