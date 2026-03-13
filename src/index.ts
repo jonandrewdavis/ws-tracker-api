@@ -31,8 +31,14 @@ interface ErrorPayload {
 	message: string;
 }
 
-
-const ALLOWED_ORIGINS = ['https://html-classic.itch.zone', 'https://androodev.com', 'https://www.androodev.com', 'https://bewe.me'];
+const ALLOWED_ORIGINS = [
+	'https://html-classic.itch.zone',
+	'https://andoodev.com',
+	'https://www.andoodev.com',
+	'https://androodev.com',
+	'https://www.androodev.com',
+	'https://bewe.me'
+];
 
 function handleCors(request: Request<unknown>, response: Response) {
 	const origin = request.headers.get('Origin');
