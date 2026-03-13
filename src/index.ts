@@ -134,12 +134,14 @@ export default {
 				sessionIds.push(msg.body as string);
 			}
 
+			const new_room_id = crypto.randomUUID().split('-')[0];
+
 			const message: Message = {
 				action: Actions.LOBBY,
 				payload: {
 					sessionIds,
 					host: sessionIds[0],
-					room_id: crypto.randomUUID(),
+					room_id: new_room_id,
 				}
 			}
 
