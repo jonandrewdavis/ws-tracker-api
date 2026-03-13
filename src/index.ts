@@ -137,6 +137,7 @@ export default {
 				}
 			}
 
+			// NOTE: Does not expect a response. Just process it.
 			await stub.fetch(new Request('http://internal/broadcast', {
 				method: 'POST',
 				body: JSON.stringify(message)
@@ -167,7 +168,7 @@ export class WebSocketServer extends DurableObject {
 		const upgradeHeader = request.headers.get('Upgrade');
 		if (!upgradeHeader || upgradeHeader !== 'websocket') {
 			if (request.method === 'POST') {
-				return this.handleQueue(request)
+				this.handleQueue(request)
 			}
 			return new Response('Durable Object expected Upgrade: websocket', { status: 426 });
 		}
@@ -207,16 +208,16 @@ export class WebSocketServer extends DurableObject {
 		const connection = this.sessions.get(ws)!;
 
 		if (message == "connect" && !this.sessionLookup.has(connection.id)) {
+			ws.send(JSON.stringify({ action: Actions.WAIT }));
 			this.env.MY_FIRST_QUEUE.send(connection.id);
 			this.sessionLookup.set(connection.id, ws);
-			ws.send(JSON.stringify({ action: Actions.WAIT }));
 			return;
 		}
 
 		// TODO: Better retry 
 		if (message == "retry" && this.sessionLookup.has(connection.id)) {
-			this.env.MY_FIRST_QUEUE.send(connection.id);
 			ws.send(JSON.stringify({ action: Actions.WAIT }));
+			this.env.MY_FIRST_QUEUE.send(connection.id);
 			return;
 		}
 		// Reply back with the same message to the connection
@@ -225,30 +226,82 @@ export class WebSocketServer extends DurableObject {
 	async handleQueue(request: Request) {
 		try {
 			const message: Message = await request.json();
-			if (message.action == Actions.LOBBY) {
-				const payload = message.payload as LobbyPayload;
-				// TODO: Assert or something the payload is as expected. Rogue payloads could theoretcially mess this up
-				if (payload.sessionIds.length < 2) {
-					// TODO: retry or kick 'em out to menu? Probably error. Their id has been processed.
-					// Could requeue it if their connection is still good though.
-					throw new Error('Session length is less than 2');
+			try {
+				if (this._validateMessage(message) === false) {
+					throw new Error('Error: Queue validation failed: ' + JSON.stringify(message));
 				}
 
+				// We passed the validation. Send the payload and that's the best we can do
+				var payload = message.payload as LobbyPayload
 				payload.sessionIds.forEach((sessionId) => {
 					const session = this.sessionLookup.get(sessionId)
 					if (session) {
-						session.send(JSON.stringify(message));
-						this.sessionLookup.delete(sessionId);
-					} else {
-						throw new Error('Session not found: ' + sessionId);
+						const host = sessionId === payload.host
+						session.send(JSON.stringify({ action: Actions.LOBBY, payload: { ...payload, host } }));
 					}
 				});
+			} catch (err) {
+				// Here we notify any waiting clients that there was an error
+				console.error('Sending to clients:', err);
+				if (message.payload && 'sessionIds' in message.payload) {
+					message.payload.sessionIds.forEach((sessionId) => {
+						const session = this.sessionLookup.get(sessionId)
+						if (session) {
+							const newErrorMessage: Message = { action: Actions.ERROR, payload: { message: 'Matchmaking failed, please try again' } }
+							session.send(JSON.stringify(newErrorMessage));
+						}
+					});
+				} else {
+					console.error('Nothing sent to clients: ' + JSON.stringify(message));
+				}
 			}
-			return new Response('Broadcast successful', { status: 200 });
 		} catch (err) {
-			console.error('Error broadcasting to session:', err);
-			return new Response('Error broadcasting to session', { status: 400 });
+			console.error('CRITICAL: : own error handling queue:', err);
 		}
+	}
+
+	// 1. Must be Lobby action
+	// 2. Must have exactly 2 session ids
+	// 3. Must not be the same. 
+	// 4. Must be in the session look up
+	// 5. Must have an active connection to websocket
+	_validateMessage(message: Message): boolean {
+		if (message.action !== Actions.LOBBY) {
+			return false;
+		}
+
+		var payload = message.payload as LobbyPayload
+		if (payload.sessionIds.length !== 2) {
+			return false;
+		}
+
+		if (payload.sessionIds[0] === payload.sessionIds[1]) {
+			return false;
+		}
+
+		if (payload.host !== payload.sessionIds[0]) {
+			return false;
+		}
+
+		for (const sessionId of payload.sessionIds) {
+			if (!this.sessionLookup.has(sessionId)) {
+				return false;
+			}
+		}
+
+
+		for (const sessionId of payload.sessionIds) {
+			const ws = this.sessionLookup.get(sessionId);
+			if (!ws) {
+				return false;
+			}
+			const connection = this.sessions.get(ws);
+			if (!connection) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
