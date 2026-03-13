@@ -134,7 +134,8 @@ export default {
 				sessionIds.push(msg.body as string);
 			}
 
-			const new_room_id = crypto.randomUUID().split('-')[0];
+			// NOTE: Room ids must be 5 characters
+			const new_room_id = crypto.randomUUID().slice(0, 4)
 
 			const message: Message = {
 				action: Actions.LOBBY,
