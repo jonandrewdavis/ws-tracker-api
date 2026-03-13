@@ -135,7 +135,7 @@ export default {
 			}
 
 			// NOTE: Room ids must be 5 characters
-			const new_room_id = crypto.randomUUID().slice(0, 4)
+			const new_room_id = crypto.randomUUID().slice(0, 5)
 
 			const message: Message = {
 				action: Actions.LOBBY,
