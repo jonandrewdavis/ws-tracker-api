@@ -90,7 +90,7 @@ export default {
 			}
 		}
 
-		if (request.url.endsWith('/websocket')) {
+		if (request.url.endsWith('websocket') || request.url.endsWith('websocket/')) {
 			// Expect to receive a WebSocket Upgrade request.
 			// If there is one, accept the request and return a WebSocket Response.
 			const upgradeHeader = request.headers.get('Upgrade');
