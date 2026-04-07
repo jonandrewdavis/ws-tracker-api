@@ -37,7 +37,8 @@ const ALLOWED_ORIGINS = [
 	'https://www.andoodev.com',
 	'https://androodev.com',
 	'https://www.androodev.com',
-	'https://bewe.me'
+	'https://bewe.me',
+	'https://orbitals.dev.bewe.me',
 ];
 
 function handleCors(request: Request<unknown>, response: Response) {
@@ -86,7 +87,7 @@ export default {
 				}
 			} catch {
 				// TODO: Error for turn
-				console.log('Error for turn')
+				console.log('Error for turn');
 			}
 		}
 
@@ -135,7 +136,7 @@ export default {
 			}
 
 			// NOTE: Room ids must be 5 characters
-			const new_room_id = crypto.randomUUID().slice(0, 5)
+			const new_room_id = crypto.randomUUID().slice(0, 5);
 
 			const message: Message = {
 				action: Actions.LOBBY,
@@ -143,16 +144,18 @@ export default {
 					sessionIds,
 					host: sessionIds[0],
 					room_id: new_room_id,
-				}
-			}
+				},
+			};
 
 			// NOTE: Does not expect a response. Just process it.
-			await stub.fetch(new Request('http://internal/broadcast', {
-				method: 'POST',
-				body: JSON.stringify(message)
-			}));
+			await stub.fetch(
+				new Request('http://internal/broadcast', {
+					method: 'POST',
+					body: JSON.stringify(message),
+				}),
+			);
 		} catch (err) {
-			console.error("Failed to proces message queue :", err);
+			console.error('Failed to proces message queue :', err);
 		} finally {
 			for (const msg of batch.messages) {
 				// console.log('DEBUG: Ack - ', batch.messages.length, msg)
@@ -177,7 +180,7 @@ export class WebSocketServer extends DurableObject {
 		const upgradeHeader = request.headers.get('Upgrade');
 		if (!upgradeHeader || upgradeHeader !== 'websocket') {
 			if (request.method === 'POST') {
-				this.handleQueue(request)
+				this.handleQueue(request);
 			}
 			return new Response('Durable Object expected Upgrade: websocket', { status: 426 });
 		}
@@ -216,15 +219,15 @@ export class WebSocketServer extends DurableObject {
 	async handleWebSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
 		const connection = this.sessions.get(ws)!;
 
-		if (message == "connect" && !this.sessionLookup.has(connection.id)) {
+		if (message == 'connect' && !this.sessionLookup.has(connection.id)) {
 			ws.send(JSON.stringify({ action: Actions.WAIT }));
 			this.env.MY_FIRST_QUEUE.send(connection.id);
 			this.sessionLookup.set(connection.id, ws);
 			return;
 		}
 
-		// TODO: Better retry 
-		if (message == "retry" && this.sessionLookup.has(connection.id)) {
+		// TODO: Better retry
+		if (message == 'retry' && this.sessionLookup.has(connection.id)) {
 			ws.send(JSON.stringify({ action: Actions.WAIT }));
 			this.env.MY_FIRST_QUEUE.send(connection.id);
 			return;
@@ -241,11 +244,11 @@ export class WebSocketServer extends DurableObject {
 				}
 
 				// We passed the validation. Send the payload and that's the best we can do
-				var payload = message.payload as LobbyPayload
+				var payload = message.payload as LobbyPayload;
 				payload.sessionIds.forEach((sessionId) => {
-					const session = this.sessionLookup.get(sessionId)
+					const session = this.sessionLookup.get(sessionId);
 					if (session) {
-						const host = sessionId === payload.host
+						const host = sessionId === payload.host;
 						session.send(JSON.stringify({ action: Actions.LOBBY, payload: { ...payload, host } }));
 					}
 				});
@@ -254,9 +257,9 @@ export class WebSocketServer extends DurableObject {
 				console.error('Sending to clients:', err);
 				if (message.payload && 'sessionIds' in message.payload) {
 					message.payload.sessionIds.forEach((sessionId) => {
-						const session = this.sessionLookup.get(sessionId)
+						const session = this.sessionLookup.get(sessionId);
 						if (session) {
-							const newErrorMessage: Message = { action: Actions.ERROR, payload: { message: 'Matchmaking failed, please try again' } }
+							const newErrorMessage: Message = { action: Actions.ERROR, payload: { message: 'Matchmaking failed, please try again' } };
 							session.send(JSON.stringify(newErrorMessage));
 						}
 					});
@@ -271,7 +274,7 @@ export class WebSocketServer extends DurableObject {
 
 	// 1. Must be Lobby action
 	// 2. Must have exactly 2 session ids
-	// 3. Must not be the same. 
+	// 3. Must not be the same.
 	// 4. Must be in the session look up
 	// 5. Must have an active connection to websocket
 	_validateMessage(message: Message): boolean {
@@ -279,7 +282,7 @@ export class WebSocketServer extends DurableObject {
 			return false;
 		}
 
-		var payload = message.payload as LobbyPayload
+		var payload = message.payload as LobbyPayload;
 		if (payload.sessionIds.length !== 2) {
 			return false;
 		}
@@ -297,7 +300,6 @@ export class WebSocketServer extends DurableObject {
 				return false;
 			}
 		}
-
 
 		for (const sessionId of payload.sessionIds) {
 			const ws = this.sessionLookup.get(sessionId);
