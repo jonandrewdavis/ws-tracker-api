@@ -248,19 +248,23 @@ export class WebSocketServer extends DurableObject {
 			if (!p1Success || !p2Success) {
 				if (p1Success) {
 					try {
-						ws1.send(JSON.stringify({
-							action: Actions.CANCEL,
-							payload: { room_id }
-						}));
-					} catch { }
+						ws1.send(
+							JSON.stringify({
+								action: Actions.CANCEL,
+								payload: { room_id },
+							}),
+						);
+					} catch {}
 				}
 				if (p2Success) {
 					try {
-						ws2.send(JSON.stringify({
-							action: Actions.CANCEL,
-							payload: { room_id }
-						}));
-					} catch { }
+						ws2.send(
+							JSON.stringify({
+								action: Actions.CANCEL,
+								payload: { room_id },
+							}),
+						);
+					} catch {}
 				}
 			}
 		}
@@ -270,7 +274,7 @@ export class WebSocketServer extends DurableObject {
 		this.sessions.delete(ws);
 		try {
 			ws.close(1011, 'Matchmaking transmission failed');
-		} catch { }
+		} catch {}
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
@@ -282,6 +286,6 @@ export class WebSocketServer extends DurableObject {
 		}
 		try {
 			ws.close(1000, 'Durable Object is closing WebSocket');
-		} catch { }
+		} catch {}
 	}
 }
