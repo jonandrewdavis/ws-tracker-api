@@ -5,7 +5,7 @@ export interface Env {
 	ASSETS: Fetcher;
 	TURN_API_ID: string;
 	TURN_SECRET_KEY: string;
-	WEBSOCKET_SERVER: any;
+	WEBSOCKET_SERVER: DurableObjectNamespace<WebSocketServer>;
 }
 
 enum Actions {
@@ -110,7 +110,10 @@ export default {
 			// all requests to this Worker will be sent to the same Durable Object instance.
 			let id = env.WEBSOCKET_SERVER.idFromName('foo');
 			let stub = env.WEBSOCKET_SERVER.get(id);
-
+			const origin = request.headers.get('Origin');
+			if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+				return new Response('Forbidden', { status: 403 });
+			}
 			return stub.fetch(request);
 		}
 
@@ -247,16 +250,16 @@ export class WebSocketServer extends DurableObject {
 			// Handle recovery if one of the sends failed
 			if (p1Success && !p2Success) {
 				// Player 2 failed, re-queue Player 1 and notify them
-				this.waitingSessions.unshift(player1Id);
+				this.waitingSessions.push(player1Id);
 				try {
 					ws1.send(JSON.stringify({ action: Actions.WAIT }));
-				} catch {}
+				} catch { }
 			} else if (!p1Success && p2Success) {
 				// Player 1 failed, re-queue Player 2 and notify them
-				this.waitingSessions.unshift(player2Id);
+				this.waitingSessions.push(player2Id);
 				try {
 					ws2.send(JSON.stringify({ action: Actions.WAIT }));
-				} catch {}
+				} catch { }
 			}
 		}
 	}
@@ -266,7 +269,7 @@ export class WebSocketServer extends DurableObject {
 		this.sessions.delete(ws);
 		try {
 			ws.close(1011, 'Matchmaking transmission failed');
-		} catch {}
+		} catch { }
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
@@ -278,6 +281,6 @@ export class WebSocketServer extends DurableObject {
 		}
 		try {
 			ws.close(1000, 'Durable Object is closing WebSocket');
-		} catch {}
+		} catch { }
 	}
 }
