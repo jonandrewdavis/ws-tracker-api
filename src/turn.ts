@@ -54,6 +54,7 @@ export class TurnHelper {
 		}
 
 		console.log('Warning: TURN had unexpected length, ICE is missing');
+
 		return {
 			iceServers,
 		};

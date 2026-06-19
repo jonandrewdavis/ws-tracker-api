@@ -24,3 +24,13 @@ Then access on:
 ```
 [wrangler:info] Ready on http://localhost:8787
 ```
+
+
+## Deploy
+
+Requires these two to be set in `.dev.vars` and added as part of the Cloudflare settings
+
+```
+TURN_API_ID
+TURN_SECRET_KEY
+```
