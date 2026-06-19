@@ -6,9 +6,13 @@ const body = JSON.stringify({
 });
 
 interface TurnResponse {
+	iceServers: IceServer[];
+}
+
+interface IceServer {
 	urls: String[];
-	username: String;
-	credential: String;
+	username?: String;
+	credential?: String;
 }
 
 // TODO: construct this at init and inject env.TURN_SECRET_KEY in it so it always has it, rather than passing it in.
@@ -18,7 +22,7 @@ export class TurnHelper {
 	 * @param TURN_SECRET_KEY
 	 */
 	public static async generate(TURN_API_ID: String, TURN_SECRET_KEY: String): Promise<TurnResponse | null> {
-		const url = `https://rtc.live.cloudflare.com/v1/turn/keys/2d8a9cc09c39632c69e545549da58793/credentials/generate-ice-servers`;
+		const url = `https://rtc.live.cloudflare.com/v1/turn/keys/${TURN_API_ID}/credentials/generate-ice-servers`;
 
 		// TODO: Avoid casting "data as TurnResponse"
 		const fetchTurnCredentials = await fetch(url, {
@@ -30,9 +34,28 @@ export class TurnHelper {
 			body: body,
 		})
 			.then((response: Response) => response.json())
-			.then((data) => data as TurnResponse)
-			.catch((_error: Error) => null);
+			.then((data) => this.filterTurnToTCP(data as TurnResponse))
+			.catch((error: Error) => {
+				console.log('Error fetching TURN:', error);
+				return null;
+			});
 
 		return fetchTurnCredentials;
+	}
+
+	public static filterTurnToTCP({ iceServers }: TurnResponse): TurnResponse {
+		//
+		if (iceServers.length == 2) {
+			const turnOnTCP = iceServers[1];
+			turnOnTCP.urls = ['turns:turn.cloudflare.com:443?transport=tcp'];
+			return {
+				iceServers: [iceServers[0], turnOnTCP],
+			};
+		}
+
+		console.log('Warning: TURN had unexpected length, ICE is missing');
+		return {
+			iceServers,
+		};
 	}
 }

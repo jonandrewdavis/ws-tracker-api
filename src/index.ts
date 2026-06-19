@@ -76,7 +76,7 @@ export default {
 			const options = { headers: { 'content-type': 'application/json' } };
 
 			try {
-				const response = await TurnHelper.generate(env.TURN_SECRET_KEY, env.TURN_SECRET_KEY);
+				const response = await TurnHelper.generate(env.TURN_API_ID, env.TURN_SECRET_KEY);
 				if (response != null) {
 					const turnResponse = new Response(JSON.stringify(response), options);
 					return handleCors(request, turnResponse);
