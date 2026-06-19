@@ -241,26 +241,30 @@ export class WebSocketServer extends DurableObject {
 				this.handleFailedMatchPlayer(player2Id, ws2);
 			}
 
-			if (p1Success && !p2Success) {
-				this.waitingSessions.push(player1Id);
-				try {
-					ws1.send(JSON.stringify({
-						action: Actions.CANCEL,
-						payload: { room_id }
-					}));
-				} catch { }
-			} else if (!p1Success && p2Success) {
-				this.waitingSessions.push(player2Id);
-				try {
-					ws2.send(JSON.stringify({
-						action: Actions.CANCEL,
-						payload: { room_id }
-					}));
-				} catch { }
+			// Lobby is only valid if BOTH players received it. Any single failure
+			// invalidates the match for both — no server-side retry, no re-queue.
+			// The surviving player is told to CANCEL and must re-initiate (connect/retry)
+			// on their own.
+			if (!p1Success || !p2Success) {
+				if (p1Success) {
+					try {
+						ws1.send(JSON.stringify({
+							action: Actions.CANCEL,
+							payload: { room_id }
+						}));
+					} catch { }
+				}
+				if (p2Success) {
+					try {
+						ws2.send(JSON.stringify({
+							action: Actions.CANCEL,
+							payload: { room_id }
+						}));
+					} catch { }
+				}
 			}
 		}
 	}
-
 	handleFailedMatchPlayer(id: string, ws: WebSocket) {
 		this.sessionLookup.delete(id);
 		this.sessions.delete(ws);
