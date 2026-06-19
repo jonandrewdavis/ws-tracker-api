@@ -30,26 +30,9 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_sqlite_classes": [
-				"WebSocketServer"
-			],
+			"new_sqlite_classes": ["WebSocketServer"],
 		},
 	],
-	"queues": {
-		"producers": [
-			{
-				"queue": "my-first-queue",
-				"binding": "MY_FIRST_QUEUE",
-			},
-		],
-		"consumers": [
-			{
-				"queue": "my-first-queue",
-				"max_batch_size": 2, // optional
-				"max_batch_timeout": 15, // optional
-			},
-		],
-	},
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

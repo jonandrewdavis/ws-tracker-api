@@ -6,7 +6,6 @@ export interface Env {
 	TURN_API_ID: string;
 	TURN_SECRET_KEY: string;
 	WEBSOCKET_SERVER: any;
-	readonly MY_FIRST_QUEUE: Queue;
 }
 
 enum Actions {
@@ -120,68 +119,24 @@ export default {
 		var response = new Response(JSON.stringify(nothing), options);
 		return handleCors(request, response);
 	},
-
-	// Queue processes every 2 items
-	// Queue always acks the message regardless of success or failure
-	// It's up to the websocket to handle the message and requeue if necessary
-	async queue(batch, env, _ctx): Promise<void> {
-		let id = env.WEBSOCKET_SERVER.idFromName('foo');
-		let stub = env.WEBSOCKET_SERVER.get(id);
-
-		try {
-			const sessionIds: string[] = [];
-
-			for (const msg of batch.messages) {
-				sessionIds.push(msg.body as string);
-			}
-
-			// NOTE: Room ids must be 5 characters
-			const new_room_id = crypto.randomUUID().slice(0, 5);
-
-			const message: Message = {
-				action: Actions.LOBBY,
-				payload: {
-					sessionIds,
-					host: sessionIds[0],
-					room_id: new_room_id,
-				},
-			};
-
-			// NOTE: Does not expect a response. Just process it.
-			await stub.fetch(
-				new Request('http://internal/broadcast', {
-					method: 'POST',
-					body: JSON.stringify(message),
-				}),
-			);
-		} catch (err) {
-			console.error('Failed to proces message queue :', err);
-		} finally {
-			for (const msg of batch.messages) {
-				// console.log('DEBUG: Ack - ', batch.messages.length, msg)
-				msg.ack();
-			}
-		}
-	},
 } satisfies ExportedHandler<Env>;
 
 export class WebSocketServer extends DurableObject {
 	// Keeps track of all WebSocket connections
 	sessions: Map<WebSocket, { [key: string]: string }>;
 	sessionLookup: Map<string, WebSocket>;
+	waitingSessions: string[];
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.sessions = new Map();
 		this.sessionLookup = new Map();
+		this.waitingSessions = [];
 	}
 
 	async fetch(request: Request): Promise<Response> {
 		const upgradeHeader = request.headers.get('Upgrade');
 		if (!upgradeHeader || upgradeHeader !== 'websocket') {
-			if (request.method === 'POST') {
-				this.handleQueue(request);
-			}
 			return new Response('Durable Object expected Upgrade: websocket', { status: 426 });
 		}
 
@@ -217,108 +172,112 @@ export class WebSocketServer extends DurableObject {
 	// Incoming from Godot client
 	// Can queue or request a retry
 	async handleWebSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-		const connection = this.sessions.get(ws)!;
+		const connection = this.sessions.get(ws);
+		if (!connection) return;
 
-		if (message == 'connect' && !this.sessionLookup.has(connection.id)) {
-			ws.send(JSON.stringify({ action: Actions.WAIT }));
-			this.env.MY_FIRST_QUEUE.send(connection.id);
-			this.sessionLookup.set(connection.id, ws);
+		if (message === 'connect') {
+			if (!this.sessionLookup.has(connection.id)) {
+				this.sessionLookup.set(connection.id, ws);
+			}
+
+			if (!this.waitingSessions.includes(connection.id)) {
+				this.waitingSessions.push(connection.id);
+				ws.send(JSON.stringify({ action: Actions.WAIT }));
+			}
+
+			this.tryMatchmaking();
 			return;
 		}
 
-		// TODO: Better retry
-		if (message == 'retry' && this.sessionLookup.has(connection.id)) {
-			ws.send(JSON.stringify({ action: Actions.WAIT }));
-			this.env.MY_FIRST_QUEUE.send(connection.id);
+		if (message === 'retry') {
+			if (!this.waitingSessions.includes(connection.id)) {
+				this.waitingSessions.push(connection.id);
+				ws.send(JSON.stringify({ action: Actions.WAIT }));
+			}
+			this.tryMatchmaking();
 			return;
 		}
-		// Reply back with the same message to the connection
 	}
 
-	async handleQueue(request: Request) {
-		try {
-			const message: Message = await request.json();
+	tryMatchmaking() {
+		// Filter out any sessions that are no longer present in sessionLookup
+		// or whose WebSocket connection is not in the OPEN state.
+		this.waitingSessions = this.waitingSessions.filter(id => {
+			const ws = this.sessionLookup.get(id);
+			return ws !== undefined && ws.readyState === 1; // 1 represents WebSocket.READY_STATE_OPEN
+		});
+
+		while (this.waitingSessions.length >= 2) {
+			const player1Id = this.waitingSessions.shift()!;
+			const player2Id = this.waitingSessions.shift()!;
+
+			const ws1 = this.sessionLookup.get(player1Id)!;
+			const ws2 = this.sessionLookup.get(player2Id)!;
+
+			const room_id = crypto.randomUUID().slice(0, 8);
+			const sessionIds = [player1Id, player2Id];
+
+			let p1Success = false;
+			let p2Success = false;
+
+			// Try to send the match details to Player 1
 			try {
-				if (this._validateMessage(message) === false) {
-					throw new Error('Error: Queue validation failed: ' + JSON.stringify(message));
-				}
-
-				// We passed the validation. Send the payload and that's the best we can do
-				var payload = message.payload as LobbyPayload;
-				payload.sessionIds.forEach((sessionId) => {
-					const session = this.sessionLookup.get(sessionId);
-					if (session) {
-						const host = sessionId === payload.host;
-						session.send(JSON.stringify({ action: Actions.LOBBY, payload: { ...payload, host } }));
-					}
-				});
+				ws1.send(JSON.stringify({
+					action: Actions.LOBBY,
+					payload: { sessionIds, host: true, room_id }
+				}));
+				p1Success = true;
 			} catch (err) {
-				// Here we notify any waiting clients that there was an error
-				console.error('Sending to clients:', err);
-				if (message.payload && 'sessionIds' in message.payload) {
-					message.payload.sessionIds.forEach((sessionId) => {
-						const session = this.sessionLookup.get(sessionId);
-						if (session) {
-							const newErrorMessage: Message = { action: Actions.ERROR, payload: { message: 'Matchmaking failed, please try again' } };
-							session.send(JSON.stringify(newErrorMessage));
-						}
-					});
-				} else {
-					console.error('Nothing sent to clients: ' + JSON.stringify(message));
-				}
+				console.error(`Failed to send lobby payload to player 1 (${player1Id}):`, err);
+				this.handleFailedMatchPlayer(player1Id, ws1);
 			}
-		} catch (err) {
-			console.error('CRITICAL: : own error handling queue:', err);
+
+			// Try to send the match details to Player 2
+			try {
+				ws2.send(JSON.stringify({
+					action: Actions.LOBBY,
+					payload: { sessionIds, host: false, room_id }
+				}));
+				p2Success = true;
+			} catch (err) {
+				console.error(`Failed to send lobby payload to player 2 (${player2Id}):`, err);
+				this.handleFailedMatchPlayer(player2Id, ws2);
+			}
+
+			// Handle recovery if one of the sends failed
+			if (p1Success && !p2Success) {
+				// Player 2 failed, re-queue Player 1 and notify them
+				this.waitingSessions.unshift(player1Id);
+				try {
+					ws1.send(JSON.stringify({ action: Actions.WAIT }));
+				} catch {}
+			} else if (!p1Success && p2Success) {
+				// Player 1 failed, re-queue Player 2 and notify them
+				this.waitingSessions.unshift(player2Id);
+				try {
+					ws2.send(JSON.stringify({ action: Actions.WAIT }));
+				} catch {}
+			}
 		}
 	}
 
-	// 1. Must be Lobby action
-	// 2. Must have exactly 2 session ids
-	// 3. Must not be the same.
-	// 4. Must be in the session look up
-	// 5. Must have an active connection to websocket
-	_validateMessage(message: Message): boolean {
-		if (message.action !== Actions.LOBBY) {
-			return false;
-		}
-
-		var payload = message.payload as LobbyPayload;
-		if (payload.sessionIds.length !== 2) {
-			return false;
-		}
-
-		if (payload.sessionIds[0] === payload.sessionIds[1]) {
-			return false;
-		}
-
-		if (payload.host !== payload.sessionIds[0]) {
-			return false;
-		}
-
-		for (const sessionId of payload.sessionIds) {
-			if (!this.sessionLookup.has(sessionId)) {
-				return false;
-			}
-		}
-
-		for (const sessionId of payload.sessionIds) {
-			const ws = this.sessionLookup.get(sessionId);
-			if (!ws) {
-				return false;
-			}
-			const connection = this.sessions.get(ws);
-			if (!connection) {
-				return false;
-			}
-		}
-
-		return true;
+	handleFailedMatchPlayer(id: string, ws: WebSocket) {
+		this.sessionLookup.delete(id);
+		this.sessions.delete(ws);
+		try {
+			ws.close(1011, 'Matchmaking transmission failed');
+		} catch {}
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
-		const connection = this.sessions.get(ws)!;
-		this.sessions.delete(ws);
-		this.sessionLookup.delete(connection.id);
-		ws.close(1000, 'Durable Object is closing WebSocket');
+		const connection = this.sessions.get(ws);
+		if (connection) {
+			this.sessions.delete(ws);
+			this.sessionLookup.delete(connection.id);
+			this.waitingSessions = this.waitingSessions.filter(id => id !== connection.id);
+		}
+		try {
+			ws.close(1000, 'Durable Object is closing WebSocket');
+		} catch {}
 	}
 }
