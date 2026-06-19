@@ -172,8 +172,7 @@ export class WebSocketServer extends DurableObject {
 		});
 	}
 
-	// Incoming from Godot client
-	// Can queue or request a retry
+	// Incoming from Godot client request for queue with "connect"
 	async handleWebSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
 		const connection = this.sessions.get(ws);
 		if (!connection) return;
@@ -191,21 +190,12 @@ export class WebSocketServer extends DurableObject {
 			this.tryMatchmaking();
 			return;
 		}
-
-		if (message === 'retry') {
-			if (!this.waitingSessions.includes(connection.id)) {
-				this.waitingSessions.push(connection.id);
-				ws.send(JSON.stringify({ action: Actions.WAIT }));
-			}
-			this.tryMatchmaking();
-			return;
-		}
 	}
 
 	tryMatchmaking() {
 		// Filter out any sessions that are no longer present in sessionLookup
 		// or whose WebSocket connection is not in the OPEN state.
-		this.waitingSessions = this.waitingSessions.filter(id => {
+		this.waitingSessions = this.waitingSessions.filter((id) => {
 			const ws = this.sessionLookup.get(id);
 			return ws !== undefined && ws.readyState === 1; // 1 represents WebSocket.READY_STATE_OPEN
 		});
@@ -225,10 +215,12 @@ export class WebSocketServer extends DurableObject {
 
 			// Try to send the match details to Player 1
 			try {
-				ws1.send(JSON.stringify({
-					action: Actions.LOBBY,
-					payload: { sessionIds, host: true, room_id }
-				}));
+				ws1.send(
+					JSON.stringify({
+						action: Actions.LOBBY,
+						payload: { sessionIds, host: true, room_id },
+					}),
+				);
 				p1Success = true;
 			} catch (err) {
 				console.error(`Failed to send lobby payload to player 1 (${player1Id}):`, err);
@@ -237,10 +229,12 @@ export class WebSocketServer extends DurableObject {
 
 			// Try to send the match details to Player 2
 			try {
-				ws2.send(JSON.stringify({
-					action: Actions.LOBBY,
-					payload: { sessionIds, host: false, room_id }
-				}));
+				ws2.send(
+					JSON.stringify({
+						action: Actions.LOBBY,
+						payload: { sessionIds, host: false, room_id },
+					}),
+				);
 				p2Success = true;
 			} catch (err) {
 				console.error(`Failed to send lobby payload to player 2 (${player2Id}):`, err);
@@ -253,13 +247,13 @@ export class WebSocketServer extends DurableObject {
 				this.waitingSessions.push(player1Id);
 				try {
 					ws1.send(JSON.stringify({ action: Actions.WAIT }));
-				} catch { }
+				} catch {}
 			} else if (!p1Success && p2Success) {
 				// Player 1 failed, re-queue Player 2 and notify them
 				this.waitingSessions.push(player2Id);
 				try {
 					ws2.send(JSON.stringify({ action: Actions.WAIT }));
-				} catch { }
+				} catch {}
 			}
 		}
 	}
@@ -269,7 +263,7 @@ export class WebSocketServer extends DurableObject {
 		this.sessions.delete(ws);
 		try {
 			ws.close(1011, 'Matchmaking transmission failed');
-		} catch { }
+		} catch {}
 	}
 
 	async handleConnectionClose(ws: WebSocket) {
@@ -277,10 +271,10 @@ export class WebSocketServer extends DurableObject {
 		if (connection) {
 			this.sessions.delete(ws);
 			this.sessionLookup.delete(connection.id);
-			this.waitingSessions = this.waitingSessions.filter(id => id !== connection.id);
+			this.waitingSessions = this.waitingSessions.filter((id) => id !== connection.id);
 		}
 		try {
 			ws.close(1000, 'Durable Object is closing WebSocket');
-		} catch { }
+		} catch {}
 	}
 }
