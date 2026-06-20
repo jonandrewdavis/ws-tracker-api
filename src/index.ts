@@ -207,7 +207,7 @@ export class WebSocketServer extends DurableObject {
 			const ws1 = this.sessionLookup.get(player1Id)!;
 			const ws2 = this.sessionLookup.get(player2Id)!;
 
-			const room_id = crypto.randomUUID().slice(0, 8);
+			const room_id = crypto.randomUUID().slice(0, 5);
 			const sessionIds = [player1Id, player2Id];
 
 			let p1Success = false;
