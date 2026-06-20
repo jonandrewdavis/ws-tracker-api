@@ -38,6 +38,11 @@
 			"new_sqlite_classes": ["WebSocketServer"],
 		},
 	],
+	// TURN_API_ID is the (non-secret) Cloudflare TURN key id; ships with deploys.
+	// TURN_SECRET_KEY is a secret — set via `wrangler secret put TURN_SECRET_KEY`.
+	"vars": {
+		"TURN_API_ID": "2d8a9cc09c39632c69e545549da58793",
+	},
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
