@@ -9,6 +9,11 @@
 	"compatibility_date": "2025-04-03",
 	"observability": {
 		"enabled": true,
+		"logs": {
+			"enabled": true,
+			// Drop auto invocation logs; keep only our explicit console.* events.
+			"invocation_logs": false,
+		},
 	},
 	"assets": {
 		"directory": "./dist",

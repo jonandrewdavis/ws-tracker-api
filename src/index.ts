@@ -1,6 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
 import { TurnHelper } from './turn';
 
+// Stable event name as the message, structured fields as the 2nd arg.
+const log = {
+	info: (event: string, fields: object = {}) => console.info(event, fields),
+	error: (event: string, fields: object = {}) => console.error(event, fields),
+};
+const shortId = (id?: string | null) => (id ? id.slice(0, 8) : 'none');
+
 export interface Env {
 	ASSETS: Fetcher;
 	TURN_API_ID: string;
@@ -84,9 +91,8 @@ export default {
 					var nothingResponse = new Response(JSON.stringify(nothing), options);
 					return handleCors(request, nothingResponse);
 				}
-			} catch {
-				// TODO: Error for turn
-				console.log('Error for turn');
+			} catch (e) {
+				log.error('turn:failed', { err: String(e) });
 			}
 		}
 
@@ -223,7 +229,7 @@ export class WebSocketServer extends DurableObject {
 				);
 				p1Success = true;
 			} catch (err) {
-				console.error(`Failed to send lobby payload to player 1 (${player1Id}):`, err);
+				log.error('match:send-failed', { room_id, player: shortId(player1Id), err: String(err) });
 				this.handleFailedMatchPlayer(player1Id, ws1);
 			}
 
@@ -237,7 +243,7 @@ export class WebSocketServer extends DurableObject {
 				);
 				p2Success = true;
 			} catch (err) {
-				console.error(`Failed to send lobby payload to player 2 (${player2Id}):`, err);
+				log.error('match:send-failed', { room_id, player: shortId(player2Id), err: String(err) });
 				this.handleFailedMatchPlayer(player2Id, ws2);
 			}
 
@@ -266,6 +272,10 @@ export class WebSocketServer extends DurableObject {
 						);
 					} catch {}
 				}
+				log.error('match:cancelled', { room_id, players: [shortId(player1Id), shortId(player2Id)] });
+			} else {
+				// Both players received the lobby: a match was made.
+				log.info('match:made', { room_id, players: [shortId(player1Id), shortId(player2Id)] });
 			}
 		}
 	}
