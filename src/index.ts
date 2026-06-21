@@ -4,6 +4,7 @@ import { TurnHelper } from './turn';
 // Stable event name as the message, structured fields as the 2nd arg.
 const log = {
 	info: (event: string, fields: object = {}) => console.info(event, fields),
+	warn: (event: string, fields: object = {}) => console.warn(event, fields),
 	error: (event: string, fields: object = {}) => console.error(event, fields),
 };
 const shortId = (id?: string | null) => (id ? id.slice(0, 8) : 'none');
@@ -20,11 +21,20 @@ enum Actions {
 	WAIT = 'wait',
 	LOBBY = 'lobby',
 	CANCEL = 'cancel',
+	LOG = 'log',
 }
 
 interface Message {
 	action: Actions;
-	payload?: LobbyPayload | ErrorPayload;
+	payload?: LobbyPayload | ErrorPayload | LogPayload;
+}
+
+interface LogPayload {
+	level?: 'info' | 'warn' | 'error';
+	event: string; // stable event name, e.g. 'tube:join_session_failed'
+	source?: string; // 'tube_client' | 'tube_tracker'
+	message?: string; // human-readable detail
+	tags?: Record<string, string | number | boolean>;
 }
 
 interface LobbyPayload {
@@ -196,6 +206,34 @@ export class WebSocketServer extends DurableObject {
 			this.tryMatchmaking();
 			return;
 		}
+
+		let parsed: Message | null = null;
+		try {
+			parsed = typeof message === 'string' ? (JSON.parse(message) as Message) : null;
+		} catch {
+			return;
+		}
+		if (!parsed) return;
+
+		if (parsed.action === Actions.LOG) {
+			this.handleClientLog(connection, parsed.payload as LogPayload);
+			return;
+		}
+	}
+
+	handleClientLog(connection: { [key: string]: string }, payload: LogPayload) {
+		if (!payload || typeof payload.event !== 'string' || payload.event.length > 120) return;
+
+		const fields = {
+			session: shortId(connection.id),
+			source: typeof payload.source === 'string' ? payload.source.slice(0, 40) : 'client',
+			message: typeof payload.message === 'string' ? payload.message.slice(0, 500) : undefined,
+			...payload.tags,
+		};
+
+		if (payload.level === 'error') log.error(payload.event, fields);
+		else if (payload.level === 'warn') log.warn(payload.event, fields);
+		else log.info(payload.event, fields);
 	}
 
 	tryMatchmaking() {
