@@ -55,6 +55,8 @@ const ALLOWED_ORIGINS = [
 	'https://www.androodev.com',
 	'https://bewe.me',
 	'https://orbitals.dev.bewe.me',
+	'https://preview.orbitals-dev.workers.dev',
+	'https://testing.orbitals-dev.workers.dev',
 ];
 
 function handleCors(request: Request<unknown>, response: Response) {
