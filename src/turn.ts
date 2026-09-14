@@ -20,8 +20,13 @@ export class TurnHelper {
 	/**
 	 * @param TURN_API_ID
 	 * @param TURN_SECRET_KEY
+	 * @param filterToTCP when true, restrict TURN to TLS/TCP 443; when false, return all transports (UDP + TCP + TLS)
 	 */
-	public static async generate(TURN_API_ID: String, TURN_SECRET_KEY: String): Promise<TurnResponse | null> {
+	public static async generate(
+		TURN_API_ID: String,
+		TURN_SECRET_KEY: String,
+		filterToTCP: boolean = true,
+	): Promise<TurnResponse | null> {
 		// The most common failure: env vars unset in this environment (they only
 		// live in .dev.vars locally and are NOT uploaded by `wrangler deploy`).
 		// Without this guard the URL gets `undefined` and the API 404s.
@@ -49,7 +54,15 @@ export class TurnHelper {
 			}
 
 			const data = (await response.json()) as TurnResponse;
-			return this.filterTurnToTCP(data);
+			if (filterToTCP) {
+				return this.filterTurnToTCP(data);
+			}
+
+			if (!Array.isArray(data?.iceServers)) {
+				console.log('TURN response missing iceServers array');
+				return null;
+			}
+			return { iceServers: data.iceServers };
 		} catch (error) {
 			console.log('Error fetching TURN:', error);
 			return null;

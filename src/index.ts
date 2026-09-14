@@ -71,6 +71,22 @@ function handleCors(request: Request<unknown>, response: Response) {
 	return response;
 }
 
+async function turnResponse(request: Request<unknown>, env: Env, filterToTCP: boolean): Promise<Response | null> {
+	const options = { headers: { 'content-type': 'application/json' } };
+
+	try {
+		const response = await TurnHelper.generate(env.TURN_API_ID, env.TURN_SECRET_KEY, filterToTCP);
+		if (response != null) {
+			return handleCors(request, new Response(JSON.stringify(response), options));
+		}
+		const nothing = { response: 'not found' };
+		return handleCors(request, new Response(JSON.stringify(nothing), options));
+	} catch (e) {
+		log.error('turn:failed', { err: String(e), filterToTCP });
+		return null;
+	}
+}
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		if (request.method === 'OPTIONS') {
@@ -90,22 +106,16 @@ export default {
 		}
 
 		// TODO: Any other path names we need here? I'm not confident this is the best way to route these worker requests.
-		if (url.pathname.endsWith('turn') || url.pathname.endsWith('turn/')) {
-			const options = { headers: { 'content-type': 'application/json' } };
+		// Full ICE list: STUN + TURN over UDP, TCP, and TLS.
+		if (url.pathname.endsWith('turn_complete') || url.pathname.endsWith('turn_complete/')) {
+			const response = await turnResponse(request, env, false);
+			if (response) return response;
+		}
 
-			try {
-				const response = await TurnHelper.generate(env.TURN_API_ID, env.TURN_SECRET_KEY);
-				if (response != null) {
-					const turnResponse = new Response(JSON.stringify(response), options);
-					return handleCors(request, turnResponse);
-				} else {
-					const nothing = { response: 'not found' };
-					var nothingResponse = new Response(JSON.stringify(nothing), options);
-					return handleCors(request, nothingResponse);
-				}
-			} catch (e) {
-				log.error('turn:failed', { err: String(e) });
-			}
+		// TURN restricted to TLS/TCP 443.
+		if (url.pathname.endsWith('turn') || url.pathname.endsWith('turn/')) {
+			const response = await turnResponse(request, env, true);
+			if (response) return response;
 		}
 
 		if (request.url.endsWith('websocket') || request.url.endsWith('websocket/')) {
