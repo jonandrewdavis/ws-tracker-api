@@ -1,5 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 import { TurnHelper } from './turn';
+import { LobbyRegistry, type RegistryResult } from './lobbies';
+
+export { LobbyRegistry };
 
 // Stable event name as the message, structured fields as the 2nd arg.
 const log = {
@@ -14,6 +17,7 @@ export interface Env {
 	TURN_API_ID: string;
 	TURN_SECRET_KEY: string;
 	WEBSOCKET_SERVER: DurableObjectNamespace<WebSocketServer>;
+	LOBBY_REGISTRY: DurableObjectNamespace<LobbyRegistry>;
 }
 
 enum Actions {
@@ -87,6 +91,49 @@ async function turnResponse(request: Request<unknown>, env: Env, filterToTCP: bo
 	}
 }
 
+function jsonResponse(request: Request<unknown>, body: unknown, status = 200) {
+	return handleCors(request, new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
+}
+
+function registryResponse<T>(request: Request<unknown>, result: RegistryResult<T>) {
+	return result.ok ? jsonResponse(request, result.value ?? { ok: true }) : jsonResponse(request, { error: result.error }, result.status);
+}
+
+// Lobby registry for backends without discovery (e.g. Tube):
+// POST /lobbies, PUT|DELETE /lobbies/:id (Authorization: Bearer <host_token>), GET /lobbies?app_id=&version=
+async function lobbiesResponse(request: Request<unknown>, env: Env, url: URL): Promise<Response> {
+	const registry = env.LOBBY_REGISTRY.get(env.LOBBY_REGISTRY.idFromName('global'));
+	const id = url.pathname.split('/')[2];
+	const token = (request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+	const readBody = async () => {
+		try {
+			return (await request.json()) as Record<string, any>;
+		} catch {
+			return null;
+		}
+	};
+
+	if (!id && request.method === 'GET') {
+		const app_id = url.searchParams.get('app_id') ?? '';
+		return jsonResponse(request, await registry.list(app_id, url.searchParams.get('version') ?? ''));
+	}
+	if (!id && request.method === 'POST') {
+		const body = await readBody();
+		if (!body) return jsonResponse(request, { error: 'invalid json' }, 400);
+		const result = await registry.create(body as any);
+		if (result.ok) log.info('lobby:created', { app_id: String(body.app_id).slice(0, 64), lobby: shortId(result.value.lobby_id) });
+		return registryResponse(request, result);
+	}
+	if (id && request.method === 'PUT') {
+		const body = (await readBody()) ?? {};
+		return registryResponse(request, await registry.heartbeat(id, token, body));
+	}
+	if (id && request.method === 'DELETE') {
+		return registryResponse(request, await registry.remove(id, token));
+	}
+	return jsonResponse(request, { error: 'method not allowed' }, 405);
+}
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		if (request.method === 'OPTIONS') {
@@ -103,6 +150,10 @@ export default {
 		// Hashed assets under /assets/* skip the Worker entirely via run_worker_first.
 		if (url.pathname.match(/\.\w+$/) && !url.pathname.endsWith('.html')) {
 			return env.ASSETS.fetch(request);
+		}
+
+		if (url.pathname === '/lobbies' || url.pathname.startsWith('/lobbies/')) {
+			return lobbiesResponse(request, env, url);
 		}
 
 		// TODO: Any other path names we need here? I'm not confident this is the best way to route these worker requests.

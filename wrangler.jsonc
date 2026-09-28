@@ -30,12 +30,20 @@
 				"name": "WEBSOCKET_SERVER",
 				"class_name": "WebSocketServer",
 			},
+			{
+				"name": "LOBBY_REGISTRY",
+				"class_name": "LobbyRegistry",
+			},
 		],
 	},
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["WebSocketServer"],
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["LobbyRegistry"],
 		},
 	],
 	// TURN_API_ID is the (non-secret) Cloudflare TURN key id; ships with deploys.
