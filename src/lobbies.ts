@@ -1,8 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 
-// Hosts heartbeat every ~15s; anything silent for longer than this is swept.
-const LOBBY_TTL_MS = 45_000;
-const SWEEP_INTERVAL_MS = 30_000;
+// Hosts heartbeat every ~5s; anything silent for longer than this is swept.
+const LOBBY_TTL_MS = 15_000;
+const SWEEP_INTERVAL_MS = 10_000;
 const MAX_LOBBIES_PER_APP = 200;
 const MAX_NAME_LENGTH = 32;
 const MAX_PLAYERS_LIMIT = 64;
